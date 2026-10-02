@@ -43,6 +43,16 @@ A replacement bar can render installed widgets, but service-backed third-party w
 
 Then it clones the repo into a staging directory, validates the manifest, refuses the install if another plugin already claims that id, and moves it into `~/.config/omarchy/plugins/<id>/`. Without `--enable` it asks whether you want it on now, and you can say no and go read the code first. It never runs anything from the plugin, never executes an install hook, and never asks for sudo — it clones files, checks the manifest, and flips a bit over IPC.
 
+If you use Claude Code or Codex as your default agent (`omarchy default agent claude`), you can have it read the plugin before it lands:
+
+```
+omarchy plugin add https://github.com/acme/omarchy-weather.git --verify-with-ai
+```
+
+After cloning and validating, the agent reviews every file while the plugin is still staged, looking for things like hidden commands, remote code loading, credential access, persistence, and obfuscation. A spinner shows while it works, then you get its report and a verdict: SAFE, SUSPICIOUS, or MALICIOUS. A flagged plugin is only added if you explicitly say so, and with `--yes` it's refused outright. If you have no supported agent set up, it tells you and stops before cloning; run the command again without `--verify-with-ai` to add the plugin the usual way.
+
+The agent runs headless and read-only, so code in the plugin can't talk it into running anything. You can also review a plugin you already have with `omarchy plugin verify ~/.config/omarchy/plugins/acme.weather`. Treat a SAFE verdict as a second opinion, not a guarantee: an AI can miss things, so still read the code of anything you don't trust.
+
 Updating is a fast-forward pull of that same checkout:
 
 ```

@@ -2,8 +2,8 @@
 
 # omarchy:summary=Add a shell plugin from git
 # omarchy:group=plugin
-# omarchy:args=[git-url] [--enable] [--yes]
-# omarchy:examples=omarchy plugin add https://github.com/acme/omarchy-weather.git --enable
+# omarchy:args=[git-url] [--enable] [--verify-with-ai] [--yes]
+# omarchy:examples=omarchy plugin add https://github.com/acme/omarchy-weather.git --enable | omarchy plugin add https://github.com/acme/omarchy-weather.git --verify-with-ai
 # omarchy:alias=omarchy plugin install
 
 set -euo pipefail
@@ -60,6 +60,7 @@ plugin_id_manifest() {
 
 url=""
 enable_after=""
+verify_with_ai=0
 
 while (( $# > 0 )); do
   case "$1" in
@@ -67,12 +68,16 @@ while (( $# > 0 )); do
     enable_after=true
     shift
     ;;
+  --verify-with-ai)
+    verify_with_ai=1
+    shift
+    ;;
   --yes | -y)
     ASSUME_YES=1
     shift
     ;;
   -h | --help)
-    echo "Usage: omarchy plugin add [git-url] [--enable] [--yes]"
+    echo "Usage: omarchy plugin add [git-url] [--enable] [--verify-with-ai] [--yes]"
     exit 0
     ;;
   -*)
@@ -99,6 +104,11 @@ fi
 # missing checker leaves this non-zero, which refuses the URL rather than
 # cloning it.
 omarchy-git-url-check "$url" || exit 1
+
+# Checked before cloning so a missing agent costs nothing.
+if (( verify_with_ai )) && ! omarchy-plugin-verify --check; then
+  fail "cannot verify with AI; set up a supported agent, or add the plugin without --verify-with-ai"
+fi
 
 if (( ! ASSUME_YES )); then
   cat >&2 <<WARN
@@ -141,6 +151,24 @@ target="$PLUGINS_DIR/$id"
 if [[ -e $target || -L $target ]]; then
   rm -rf "$stage"
   fail "plugin '$id' is already installed; update it with: omarchy plugin update $id"
+fi
+
+# Reviewed while still staged, so a flagged plugin never reaches the folder the
+# shell scans. A flagged plugin is refused under --yes and needs an explicit
+# answer otherwise; a review that reaches no verdict always refuses.
+if (( verify_with_ai )); then
+  verify_status=0
+  omarchy-plugin-verify "$stage" || verify_status=$?
+
+  if (( verify_status == 2 )); then
+    if (( ASSUME_YES )) || ! interactive || ! gum confirm --default=false "The AI review flagged '$id'. Add it anyway?"; then
+      rm -rf "$stage"
+      fail "refusing to add: the AI review flagged this plugin"
+    fi
+  elif (( verify_status != 0 )); then
+    rm -rf "$stage"
+    fail "refusing to add: the AI review did not complete"
+  fi
 fi
 
 mv "$stage" "$target"
